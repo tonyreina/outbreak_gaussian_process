@@ -1,4 +1,4 @@
-# GP COVID Forecasting Example
+# GCOVID Forecasting Example
 
 Renders an animated MP4 walking through every step of **Gaussian Process regression**
 using a COVID-19 outbreak as the running example.

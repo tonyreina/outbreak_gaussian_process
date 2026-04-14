@@ -41,14 +41,14 @@ OBS = np.array([
     [ 3,   80],   # 0  early seeding
     [ 7,  320],   # 1  first wave climbing
     [12,  590],   # 2  first wave peak
-    [20,  310],   # 3  work from home dip
+    [20,  290],   # 3  work from home dip
     [30,  420],   # 4  pre-Omicron uptick
     [38, 1250],   # 5  Omicron peak
     [45,  480],   # 6  post-Omicron decline
 ], dtype=float)
 
 NOISE    = 25.0   # observation noise std (cases/day) — increase to trust data less
-WFH_WEEK = 16     # week of the work-from-home order annotation line
+WFH_WEEK = 13     # week of the work-from-home order annotation line
 OMI_WEEK = 24     # week of the Omicron detection annotation line (nadir between the two peaks)
 
 # ── GP kernel ─────────────────────────────────────────────────────────────────
@@ -61,8 +61,9 @@ PRIOR_STD        = 420.0  # prior std  used when no data has been observed yet
 CI_MULTIPLIER = 1.96   # z-score for the confidence band  (1.96 → 95 % CI)
 FPS           = 30     # output frame rate
 TRANSITION    = 25     # morph frames between scenes
-OUT_PATH      = 'outbreak_animation.mp4'
-DPI           = 120
+OUT_PATH           = 'outbreak_animation.mp4'
+DPI                = 120
+SHOW_KERNEL_MATRIX = False   # set True to show the k(xᵢ,xⱼ) heatmap inset
 
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -290,6 +291,19 @@ ax.legend(handles=leg_elements, loc='upper left', fontsize=8,
 
 plt.tight_layout(rect=[0, 0.06, 1, 0.91])
 
+# ── Kernel matrix inset (optional) ────────────────────────────────────────────
+# Positioned upper-right; shows k(xᵢ,xⱼ) = exp(−½ Δt²/ℓ²) as a live heatmap.
+# Each cell is the normalised RBF correlation between two observed weeks.
+# Diagonal = 1 (a point is perfectly correlated with itself); off-diagonal values
+# shrink toward 0 as weeks grow farther apart — revealing the GP's smoothness prior.
+if SHOW_KERNEL_MATRIX:
+    k_ax = ax.inset_axes((0.655, 0.53, 0.335, 0.44))
+    k_ax.set_facecolor(SURFACE)
+    for sp in k_ax.spines.values():
+        sp.set_color('#30363d')
+    k_ax.set_title(f'Kernel  k(xᵢ,xⱼ) = exp(−½ Δt²/{RBF_LENGTH_SCALE:.0f}²)',
+                   fontsize=6, color=MUT_C, pad=3)
+
 # Cache GP predictions per scene to avoid recomputing every frame
 xs_full = np.linspace(XMIN, XMAX, 300)
 scene_cache = {}
@@ -299,6 +313,50 @@ for si, sc in enumerate(scenes):
 
 def lerp(a, b, t):
     return a * (1 - t) + b * t
+
+_last_k_mask = None   # cache so we only redraw the heatmap when obs_mask changes
+
+def update_k_matrix(obs_mask):
+    """Redraw the kernel matrix inset for the current set of observations."""
+    global _last_k_mask
+    key = frozenset(obs_mask)
+    if key == _last_k_mask:
+        return
+    _last_k_mask = key
+
+    k_ax.clear()
+    k_ax.set_facecolor(SURFACE)
+    for sp in k_ax.spines.values():
+        sp.set_color('#30363d')
+    k_ax.set_title(f'Kernel  k(xᵢ,xⱼ) = exp(−½ Δt²/{RBF_LENGTH_SCALE:.0f}²)',
+                   fontsize=6, color=MUT_C, pad=3)
+
+    if not obs_mask:
+        k_ax.text(0.5, 0.5, 'no observations yet', transform=k_ax.transAxes,
+                  ha='center', va='center', color=MUT_C, fontsize=7, style='italic')
+        k_ax.set_xticks([])
+        k_ax.set_yticks([])
+        return
+
+    ox    = obsX[sorted(obs_mask)]
+    dists = np.subtract.outer(ox, ox) / RBF_LENGTH_SCALE
+    K     = np.exp(-0.5 * dists**2)          # normalised RBF: diagonal = 1
+    weeks = [f'W{int(w)}' for w in ox]
+
+    im = k_ax.imshow(K, vmin=0, vmax=1, cmap='YlGn',
+                     aspect='auto', interpolation='nearest')
+    k_ax.set_xticks(range(len(ox)))
+    k_ax.set_xticklabels(weeks, fontsize=5.5, rotation=45, ha='right', color=MUT_C)
+    k_ax.set_yticks(range(len(ox)))
+    k_ax.set_yticklabels(weeks, fontsize=5.5, color=MUT_C)
+    k_ax.tick_params(colors=MUT_C, length=2)
+
+    # Annotate each cell with its value
+    for i in range(len(ox)):
+        for j in range(len(ox)):
+            k_ax.text(j, i, f'{K[i,j]:.2f}', ha='center', va='center',
+                      fontsize=4.5 if len(ox) > 5 else 6,
+                      color='#0d1117' if K[i,j] > 0.5 else MUT_C)
 
 # ── Per-frame render function ──────────────────────────────────────────────────
 def render_frame(frame_info):
@@ -380,6 +438,8 @@ def render_frame(frame_info):
 
     title_txt.set_text(title)
     desc_txt.set_text(desc)
+    if SHOW_KERNEL_MATRIX:
+        update_k_matrix(obs_mask)
 
 # ── Render ─────────────────────────────────────────────────────────────────────
 writer = FFMpegWriter(fps=FPS, bitrate=2500,
