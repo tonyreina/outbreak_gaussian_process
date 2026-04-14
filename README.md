@@ -1,6 +1,6 @@
 # GP COVID Animation
 
-Renders an animated MP4 walking through every step of **Gaussian Process regression**
+Renders an animated WebM walking through every step of **Gaussian Process regression**
 using a COVID-19 outbreak as the running example.
 
 ## Scenes
@@ -30,30 +30,36 @@ pixi run render
 ```
 
 This installs all dependencies into an isolated environment and writes
-`gp_covid.mp4` into the current directory (~1.5 MB, ~23 s at 30 fps).
+`gp_covid.webm` into the current directory (~30 fps, transparent background).
 
 ### Or run directly (if you have Python + ffmpeg already)
 ```bash
 pip install numpy matplotlib
-python gp_covid_anim.py
+python covid_forecasting_example.py
 ```
 
 ## Project structure
 
 ```
-gp_covid_pixi/
-├── pixi.toml          # environment + task definitions
-├── gp_covid_anim.py   # animation script
+outbreak_gaussian_process/
+├── pixi.toml                    # environment + task definitions
+├── covid_forecasting_example.py # animation script
 └── README.md
 ```
 
-## Key parameters (top of `gp_covid_anim.py`)
+## Key parameters (top of `covid_forecasting_example.py`)
+
+All tunable values live in the `CONFIGURATION` block at the top of the script.
 
 | Variable | Default | Effect |
 |----------|---------|--------|
+| `OBS` | 7-row array | Week + daily-case data points |
+| `NOISE` | 25 cases | Observation noise std — increase to trust data less |
+| `VAC_WEEK` | 16 | Week of the vaccine rollout annotation line |
+| `OMI_WEEK` | 34 | Week of the Omicron detection annotation line |
+| `RBF_LENGTH_SCALE` | 7.0 weeks | GP smoothness / correlation length |
+| `RBF_SIGNAL_STD` | 350 cases | GP prior amplitude |
+| `CI_MULTIPLIER` | 1.96 | Confidence band z-score (1.96 → 95 % CI) |
 | `FPS` | 30 | Output frame rate |
 | `TRANSITION` | 25 | Morph frames between scenes |
-| `l` (kernel) | 7.0 weeks | Smoothness / correlation length |
-| `sf` (kernel) | 350 cases | Prior signal amplitude |
-| `NOISE` | 25 cases | Observation noise std |
-| `dpi` | 120 | Output resolution |
+| `DPI` | 120 | Output resolution |
