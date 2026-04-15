@@ -21,6 +21,7 @@ Or directly:
     python ovid_forecasting_example.py
 """
 
+import datetime
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -312,18 +313,26 @@ ax.spines[['top', 'right']].set_visible(False)
 ax.spines['left'].set_color('#30363d')
 ax.spines['bottom'].set_color('#30363d')
 ax.tick_params(colors=MUT_C, labelsize=9)
-ax.set_xlabel('Week', color=MUT_C, fontsize=10)
+ax.set_xlabel('', color=MUT_C, fontsize=10)
 ax.set_ylabel('Daily Cases', color=MUT_C, fontsize=10)
 ax.xaxis.set_tick_params(color='#30363d')
 ax.yaxis.set_tick_params(color='#30363d')
 for tick in ax.get_xticklabels() + ax.get_yticklabels():
     tick.set_color(MUT_C)
 ax.grid(axis='y', color='#21262d', linewidth=0.7, alpha=0.8)
-ax.set_xticks([XMIN, WFH_WEEK, MASK_WEEK, OMI_WEEK, 20, SCHOOL_WEEK, 38, VAX_WEEK, XMAX])
-ax.set_xticklabels(
-    [f'W{w}' for w in [XMIN, WFH_WEEK, MASK_WEEK, OMI_WEEK, 20, SCHOOL_WEEK, 38, VAX_WEEK, XMAX]],
-    fontsize=8,
-)
+# Monthly x-ticks: Week 1 = Mar 5 2020; place one tick per month at the 1st
+_anchor = datetime.date(2020, 3, 5)
+_xtick_pos, _xtick_labels = [1.0], ['Mar\n2020']
+_d = datetime.date(2020, 4, 1)
+while True:
+    _wk = (_d - _anchor).days / 7 + 1
+    if _wk > XMAX + 0.5:
+        break
+    _xtick_pos.append(_wk)
+    _xtick_labels.append(_d.strftime('%b\n%Y') if _d.month == 1 else _d.strftime('%b'))
+    _d = (_d.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
+ax.set_xticks(_xtick_pos)
+ax.set_xticklabels(_xtick_labels, fontsize=8)
 
 # Pre-compute the static ground-truth curve
 xs_true = np.linspace(XMIN, XMAX, 500)
