@@ -1,7 +1,7 @@
 # MOVID Forecasting Example
 
 Renders an animated MP4 walking through every step of **Gaussian Process regression**
-using a stylised MOVID-19 outbreak modelled on **Maryland's first year (Mar 2020 – Mar 2021)**.
+using a stylised COVID-19 outbreak modelled on **Maryland's first year (Mar 2020 – Mar 2021)**.
 
 ![Final posterior frame](preview.png)
 
