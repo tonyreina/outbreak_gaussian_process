@@ -1,16 +1,17 @@
 """
-Gaussian Process Regression — OVID-19 Outbreak Animation
-=========================================================
-Renders an 8-scene MP4 that walks through every step of GP regression:
+Gaussian Process Regression — MOVID-19 Outbreak Animation
+==========================================================
+Renders a 9-scene MP4 that walks through every step of GP regression:
 
   1. Wide prior (no data)
   2. Early wave observations arrive
-  3. Work from home (week 16) — posterior bends down
-  4. Omicron variant detected (week 34) — surge observed
-  5. Post-Omicron decline — full arc in view
-  6. Interpolation query (week 25) — tight CI
-  7. Extrapolation query (week 50) — wide CI
-  8. Final annotated 52-week posterior
+  3. First wave peak + mask mandate
+  4. Summer plateau
+  5. Fall / Thanksgiving surge
+  6. Winter peak + vaccine rollout
+  7. Interpolation query (between waves) — tight CI
+  8. Extrapolation query (week 52) — wide CI
+  9. Final annotated 52-week posterior
 
 Output: outbreak_animation.mp4  (written to the current working directory)
 
@@ -18,11 +19,13 @@ Run via pixi:
     pixi run render
 
 Or directly:
-    python ovid_forecasting_example.py
+    python movid_forecasting_example.py
 """
 
 import datetime
 import numpy as np
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -65,8 +68,8 @@ SAMPLE_SEED       = 42     # RNG seed — change to see different plausible samp
 # ── GP kernel ─────────────────────────────────────────────────────────────────
 RBF_LENGTH_SCALE = 6.0    # smoothness: larger → longer correlation length
 RBF_SIGNAL_STD   = 2000.0 # amplitude: scaled for Maryland year-1 case range (0–4000)
-PRIOR_MEAN       = 1000.0 # prior mean used when no data has been observed yet
-PRIOR_STD        = 1500.0 # prior std  used when no data has been observed yet
+PRIOR_MEAN       = 1000.0 # prior mean: GP is centred here before any data is observed
+                           # prior std is implicit: sqrt(k(x,x)) = RBF_SIGNAL_STD
 
 # ── Output ────────────────────────────────────────────────────────────────────
 CI_MULTIPLIER = 1.96   # z-score for the confidence band  (1.96 → 95 % CI)
@@ -101,59 +104,60 @@ obsX = OBS[:, 0]
 obsY = OBS[:, 1]
 n    = len(obsX)
 
-# ── GP helpers ─────────────────────────────────────────────────────────────────
-def build_cov_matrix(x):
-    """Squared-exponential covariance matrix with observation noise on the diagonal."""
-    dists = np.subtract.outer(x, x) / RBF_LENGTH_SCALE
-    return RBF_SIGNAL_STD**2 * np.exp(-0.5 * dists**2) + np.eye(len(x)) * NOISE**2
+# ── GP helpers (scikit-learn) ──────────────────────────────────────────────────
+def _build_gpr():
+    """Construct a GaussianProcessRegressor with the configured kernel and noise."""
+    kernel = (ConstantKernel(constant_value=RBF_SIGNAL_STD**2,
+                             constant_value_bounds='fixed') *
+              RBF(length_scale=RBF_LENGTH_SCALE,
+                  length_scale_bounds='fixed'))
+    return GaussianProcessRegressor(kernel=kernel, alpha=NOISE**2,
+                                    optimizer=None, normalize_y=False)
 
 
 def gp_predict(xs, obs_mask):
     """
-    Return posterior mean and std at locations xs, conditioned on the
-    observations selected by boolean/index array obs_mask.
-    Falls back to a wide prior when no observations are selected.
+    Return posterior mean and std at locations xs via scikit-learn GPR.
+    Falls back to the analytic prior when no observations are selected.
     """
-    ox = obsX[obs_mask]
-    oy = obsY[obs_mask]
+    ox, oy = obsX[obs_mask], obsY[obs_mask]
     if len(ox) == 0:
-        return np.full_like(xs, PRIOR_MEAN), np.full_like(xs, PRIOR_STD)
-    Km    = build_cov_matrix(ox)
-    alm   = np.linalg.solve(Km, oy)
-    Kim   = np.linalg.inv(Km)
-    dists = np.subtract.outer(xs, ox) / RBF_LENGTH_SCALE
-    kstar = RBF_SIGNAL_STD**2 * np.exp(-0.5 * dists**2)
-    mu    = kstar @ alm
-    var   = np.array([RBF_SIGNAL_STD**2 - kstar[i] @ Kim @ kstar[i]
-                      for i in range(len(xs))])
-    return mu, np.sqrt(np.maximum(0, var))
+        return np.full_like(xs, PRIOR_MEAN), np.full_like(xs, RBF_SIGNAL_STD)
+    gpr = _build_gpr()
+    gpr.fit(ox.reshape(-1, 1), oy - PRIOR_MEAN)
+    mu, sig = gpr.predict(xs.reshape(-1, 1), return_std=True)
+    return mu + PRIOR_MEAN, sig
 
 
 def gp_sample(xs, obs_mask):
     """
-    Draw N_SAMPLES functions from the GP posterior (or prior when no data).
-    Each sample is a plausible smooth epidemic curve — the CI band is their envelope.
-    Uses SAMPLE_SEED so the same curves appear every scene (no flickering).
+    Draw N_SAMPLES functions from the GP posterior via scikit-learn GPR.
+    Returns shape (N_SAMPLES, len(xs)) — same convention as the rest of the code.
+    Uses return_cov=True + eigenvalue clamping to guarantee positive-definiteness
+    at the high amplitudes needed for the Maryland case-count scale.
     """
+    ox, oy = obsX[obs_mask], obsY[obs_mask]
+    gpr = _build_gpr()
     rng = np.random.RandomState(SAMPLE_SEED)
-    # Prior covariance over test points (no observation noise — we sample f, not y)
-    dists_ss = np.subtract.outer(xs, xs) / RBF_LENGTH_SCALE
-    Kss = RBF_SIGNAL_STD**2 * np.exp(-0.5 * dists_ss**2) + np.eye(len(xs)) * 1e-6
 
-    ox = obsX[obs_mask]
-    oy = obsY[obs_mask]
     if len(ox) == 0:
-        return rng.multivariate_normal(np.full(len(xs), PRIOR_MEAN), Kss, size=N_SAMPLES)
+        cov = gpr.kernel(xs.reshape(-1, 1))
+    else:
+        gpr.fit(ox.reshape(-1, 1), oy - PRIOR_MEAN)
+        _, cov = gpr.predict(xs.reshape(-1, 1), return_cov=True)
 
-    Km    = build_cov_matrix(ox)
-    Kim   = np.linalg.inv(Km)
-    dists = np.subtract.outer(xs, ox) / RBF_LENGTH_SCALE
-    kstar = RBF_SIGNAL_STD**2 * np.exp(-0.5 * dists**2)
-    mu    = kstar @ np.linalg.solve(Km, oy)
-    cov   = Kss - kstar @ Kim @ kstar.T
-    cov   = 0.5 * (cov + cov.T)           # enforce symmetry
-    cov  += np.eye(len(xs)) * 1e-2        # jitter ensures positive-definiteness at larger amplitudes
-    return rng.multivariate_normal(mu, cov, size=N_SAMPLES)
+    # Clamp any slightly-negative eigenvalues caused by floating-point error,
+    # then re-symmetrize and add a tiny nugget to guarantee PSD.
+    vals, vecs = np.linalg.eigh(cov)
+    cov_stable = vecs @ np.diag(np.maximum(vals, 0)) @ vecs.T
+    cov_stable = (cov_stable + cov_stable.T) / 2          # re-symmetrize
+    cov_stable += np.eye(len(xs)) * 1e-8                  # nugget
+
+    mu = (np.zeros(len(xs)) if len(ox) == 0
+          else gpr.predict(xs.reshape(-1, 1)))
+    samples = rng.multivariate_normal(mu + PRIOR_MEAN, cov_stable, size=N_SAMPLES,
+                                       check_valid='ignore')
+    return samples   # shape (N_SAMPLES, n_test)
 
 
 def remove_errbar(eb):
@@ -347,9 +351,9 @@ obs_scatter = ax.scatter([], [], color=OBS_C, s=70, zorder=6,
                          edgecolors=BG, linewidths=1.4)
 wfh_line    = ax.axvline(WFH_WEEK, color=WFH_C, linewidth=1.5, linestyle='--', alpha=0, zorder=5)
 omi_line    = ax.axvline(OMI_WEEK, color=OMI_C, linewidth=1.5, linestyle='--', alpha=0, zorder=5)
-wfh_label   = ax.text(WFH_WEEK + 0.3, YMAX * 0.92, 'WFH',  color=WFH_C,
+wfh_label   = ax.text(WFH_WEEK + 0.3, YMAX * 0.68, 'WFH',  color=WFH_C,
                       fontsize=8.5, fontweight='bold', alpha=0, zorder=7)
-omi_label   = ax.text(OMI_WEEK + 0.3, YMAX * 0.77, 'Reopen\nS1', color=OMI_C,
+omi_label   = ax.text(OMI_WEEK + 0.3, YMAX * 0.77, 'Stage 1\nPartial Reopening', color=OMI_C,
                       fontsize=8.5, fontweight='bold', alpha=0, zorder=7)
 qry_line    = ax.axvline(0, color=QRY_C, linewidth=1.2, linestyle=':', alpha=0, zorder=5)
 qry_errbar  = ax.errorbar([], [], yerr=[], fmt='o', color=QRY_C,
@@ -374,7 +378,7 @@ vax_label   = ax.text(VAX_WEEK    + 0.3, YMAX * 0.77, 'Vaccine',    color=VAX_C,
                       fontsize=8.5, fontweight='bold', alpha=0, zorder=7)
 mask_label  = ax.text(MASK_WEEK   + 0.3, YMAX * 0.62, 'Mask\nissued', color=MASK_C,
                       fontsize=8.5, fontweight='bold', alpha=0, zorder=7)
-school_label = ax.text(SCHOOL_WEEK + 0.3, YMAX * 0.77, 'Reopen\nS3', color=SCH_C,
+school_label = ax.text(SCHOOL_WEEK + 0.3, YMAX * 0.77, 'Schools\nReopen', color=SCH_C,
                        fontsize=8.5, fontweight='bold', alpha=0, zorder=7)
 # GP sample curves — faint plausible functions drawn from the posterior distribution
 sample_lines = [ax.plot([], [], color=MEAN_C, linewidth=0.8, alpha=0.25, zorder=2)[0]

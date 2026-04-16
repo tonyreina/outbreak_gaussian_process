@@ -1,9 +1,105 @@
-# GOVID Forecasting Example
+# MOVID Forecasting Example
 
 Renders an animated MP4 walking through every step of **Gaussian Process regression**
-using a stylised OVID-19 outbreak modelled on **Maryland's first year (Mar 2020 – Mar 2021)**.
+using a stylised MOVID-19 outbreak modelled on **Maryland's first year (Mar 2020 – Mar 2021)**.
 
 ![Final posterior frame](preview.png)
+
+---
+
+## What is Gaussian Process Regression?
+
+A **Gaussian Process (GP)** is a probability distribution over functions.
+Instead of fitting a single curve to data, a GP keeps track of *every* plausible curve
+simultaneously and reports how confident it is at each point.
+
+Formally, a GP is specified by:
+
+- **Mean function** `m(x)` — the expected value of the function at input `x` (often set to 0 or a constant baseline).
+- **Covariance (kernel) function** `k(x, x')` — encodes how correlated the function values at `x` and `x'` are.
+  A large `k(x, x')` means "if the epidemic is high at week `x`, it is likely also high at nearby week `x'`."
+
+This animation uses the **RBF (Radial Basis Function) kernel**, also called the squared-exponential kernel:
+
+```
+k(x, x') = σ² · exp( −(x − x')² / (2ℓ²) )
+```
+
+where `σ` controls the overall amplitude and `ℓ` is the **length-scale** (how quickly the function
+can change — a longer length-scale produces smoother curves).
+
+### The Bayesian view
+
+GP regression is a direct application of **Bayesian inference**:
+
+| Concept | Bayesian term | What you see in the animation |
+|---------|--------------|-------------------------------|
+| Belief before seeing data | **Prior** | Wide shaded band — all smooth epidemic curves are plausible |
+| Data (observed case counts) | **Likelihood** | Orange dots added one scene at a time |
+| Updated belief after data | **Posterior** | Narrowed band that passes through the observations |
+
+The update rule is Bayes' theorem:
+
+```
+P(function | data)  ∝  P(data | function) · P(function)
+         ↑                     ↑                   ↑
+      posterior             likelihood            prior
+```
+
+Because both the prior and the likelihood are Gaussian, the posterior is also Gaussian —
+and it has a **closed-form analytical solution**. This is what makes GP regression tractable
+without Monte Carlo sampling.
+
+### Prior → Posterior in closed form
+
+Given `n` training points `X` with noisy observations `y = f(X) + ε`, `ε ~ N(0, σ_n² I)`,
+the posterior predictive distribution at new inputs `X*` is:
+
+```
+μ*(X*)  = K(X*, X) · [K(X, X) + σ_n² I]⁻¹ · y
+Σ*(X*)  = K(X*, X*) − K(X*, X) · [K(X, X) + σ_n² I]⁻¹ · K(X, X*)
+```
+
+where `K(A, B)` denotes the matrix of kernel evaluations between rows of `A` and `B`.
+The diagonal of `Σ*` gives the **pointwise variance** — the width of the confidence band.
+- **Near observations** the variance collapses toward zero (the model is certain).
+- **Far from observations** the variance reverts toward the prior (the model is uncertain).
+
+---
+
+## scikit-learn implementation
+
+This project uses **scikit-learn's `GaussianProcessRegressor`** (`sklearn.gaussian_process`).
+The kernel is constructed as a product of two components:
+
+```python
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel
+
+kernel = (ConstantKernel(constant_value=RBF_SIGNAL_STD**2,
+                         constant_value_bounds='fixed') *
+          RBF(length_scale=RBF_LENGTH_SCALE,
+              length_scale_bounds='fixed'))
+
+gpr = GaussianProcessRegressor(
+    kernel=kernel,
+    alpha=NOISE**2,      # observation noise variance added to diagonal
+    optimizer=None,      # fix hyperparameters — no MLE optimisation
+    normalize_y=False,
+)
+```
+
+Key design choices:
+
+| Choice | Reason |
+|--------|--------|
+| `optimizer=None` | Hyperparameters are set manually from domain knowledge; no log-marginal-likelihood optimisation is needed for the animation |
+| `alpha=NOISE**2` | Adds `σ_n² I` to the training kernel matrix — handles measurement noise and prevents numerical blow-up |
+| `return_cov=True` for sampling | Returns the full posterior covariance matrix so we can draw self-consistent sample paths via `multivariate_normal` |
+| Eigenvalue clamping | `np.linalg.eigh` + `np.maximum(eigenvalues, 0)` corrects any tiny negative eigenvalues from floating-point round-off before drawing samples |
+| Mean centering | Observations are shifted by `PRIOR_MEAN` before fitting and shifted back after prediction, keeping the GP prior mean aligned with the baseline epidemic level |
+
+---
 
 ## Historical basis
 
@@ -29,6 +125,8 @@ Hospital capacity lines:
 - **ICU beds (1,200):** total licensed ICU beds statewide (MHCC FY2020)
 - **Hospital surge threshold (2,500/day):** daily case rate at which Maryland hospitals were severely strained (Dec 2020)
 
+---
+
 ## Scenes
 
 | # | Scene | What you see |
@@ -45,6 +143,8 @@ Hospital capacity lines:
 
 The dashed white line shows the **simulated ground truth** — a smooth three-Gaussian
 approximation of Maryland's spring, summer, and winter epidemic waves.
+
+---
 
 ## Quick start
 
@@ -64,36 +164,48 @@ This installs all dependencies into an isolated environment and writes
 
 ### Or run directly (if you have Python + ffmpeg already)
 ```bash
-pip install numpy matplotlib tqdm
-python ovid_forecasting_example.py
+pip install numpy matplotlib scikit-learn tqdm
+python movid_forecasting_example.py
 ```
+
+---
 
 ## Project structure
 
 ```
 outbreak_gaussian_process/
-├── pixi.toml                    # environment + task definitions
-├── ovid_forecasting_example.py # animation script
-├── preview.png                  # final-frame preview (for this README)
+├── pixi.toml                     # environment + task definitions
+├── movid_forecasting_example.py  # animation script
+├── preview.png                   # final-frame preview (for this README)
 └── README.md
 ```
 
-## Key parameters (top of `ovid_forecasting_example.py`)
+---
+
+## Key parameters (top of `movid_forecasting_example.py`)
 
 All tunable values live in the `CONFIGURATION` block at the top of the script.
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `OBS` | 7-row array | Week + daily-case data points |
-| `NOISE` | 25 cases | Observation noise std — increase to trust data less |
-| `WFH_WEEK` | 16 | Week of the work-from-home order annotation line |
-| `OMI_WEEK` | 24 | Week of the Omicron detection annotation line (nadir between peaks) |
-| `RBF_LENGTH_SCALE` | 7.0 weeks | GP smoothness / correlation length |
-| `RBF_SIGNAL_STD` | 350 cases | GP prior amplitude |
+| `OBS` | 10-row array | Week + daily-case data points |
+| `NOISE` | 150 cases | Observation noise std — increase to trust data less |
+| `WFH_WEEK` | 4 | Week of the stay-at-home order annotation line |
+| `VAX_WEEK` | 42 | Week of the vaccine rollout annotation line |
+| `MASK_WEEK` | 7 | Week of the mask mandate annotation line |
+| `SCHOOL_WEEK` | 27 | Week of Stage 3 / school reopening annotation line |
+| `HOSPITAL_CAPACITY` | 2500 | Daily-case surge threshold (horizontal reference line) |
+| `ICU_CAPACITY` | 1200 | Licensed ICU bed count (horizontal reference line) |
+| `RBF_LENGTH_SCALE` | 6.0 weeks | GP smoothness / correlation length |
+| `RBF_SIGNAL_STD` | 2000 cases | GP prior amplitude |
+| `PRIOR_MEAN` | 1000 cases | Constant mean function baseline |
+| `N_SAMPLES` | 5 | Number of posterior sample paths drawn |
 | `CI_MULTIPLIER` | 1.96 | Confidence band z-score (1.96 → 95 % CI) |
 | `FPS` | 30 | Output frame rate |
 | `TRANSITION` | 25 | Morph frames between scenes |
 | `DPI` | 120 | Output resolution |
+
+---
 
 ## Data sources
 
@@ -116,9 +228,6 @@ Historical case counts and event dates are approximations derived from the follo
 
 - **Baltimore Sun — Maryland ICU bed capacity at pandemic onset (Mar 2020)**
   https://www.baltimoresun.com/coronavirus/bs-hs-coronavirus-icu-beds-20200313-sg7g7zvkkzhy5ncog5dit53tgm-story.html
-
-- **American Hospital Directory — Maryland hospital staffed bed counts**
-  https://www.ahd.com/states/hospital_MD.html
 
 - **Washington Post — Maryland hospitals near capacity (Dec 2021)**
   https://www.washingtonpost.com/dc-md-va/2021/12/15/maryland-hospitals-coronavirus-capacity/
