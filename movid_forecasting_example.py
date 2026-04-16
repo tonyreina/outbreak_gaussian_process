@@ -67,9 +67,10 @@ SAMPLE_SEED       = 42     # RNG seed — change to see different plausible samp
 
 # ── GP kernel ─────────────────────────────────────────────────────────────────
 RBF_LENGTH_SCALE = 6.0    # smoothness: larger → longer correlation length
-RBF_SIGNAL_STD   = 2000.0 # amplitude: scaled for Maryland year-1 case range (0–4000)
-PRIOR_MEAN       = 1000.0 # prior mean: GP is centred here before any data is observed
-                           # prior std is implicit: sqrt(k(x,x)) = RBF_SIGNAL_STD
+RBF_LOG_STD      = 0.8    # signal amplitude in log-space (≈ log(1 + cases_std/prior_mean))
+PRIOR_MEAN       = 1000.0 # prior mean (cases/day): GP is centred here in log-space
+                           # prior 95% CI: [PRIOR_MEAN/exp(1.96·RBF_LOG_STD),
+                           #                PRIOR_MEAN·exp(1.96·RBF_LOG_STD)]
 
 # ── Output ────────────────────────────────────────────────────────────────────
 CI_MULTIPLIER = 1.96   # z-score for the confidence band  (1.96 → 95 % CI)
@@ -104,60 +105,78 @@ obsX = OBS[:, 0]
 obsY = OBS[:, 1]
 n    = len(obsX)
 
-# ── GP helpers (scikit-learn) ──────────────────────────────────────────────────
+# ── GP helpers (scikit-learn, log-space) ──────────────────────────────────────
 def _build_gpr():
-    """Construct a GaussianProcessRegressor with the configured kernel and noise."""
-    kernel = (ConstantKernel(constant_value=RBF_SIGNAL_STD**2,
+    """
+    GP kernel configured for log-space fitting.
+    Amplitude is RBF_LOG_STD (log-space units); noise is delta-method log-noise.
+    """
+    kernel = (ConstantKernel(constant_value=RBF_LOG_STD**2,
                              constant_value_bounds='fixed') *
               RBF(length_scale=RBF_LENGTH_SCALE,
                   length_scale_bounds='fixed'))
-    return GaussianProcessRegressor(kernel=kernel, alpha=NOISE**2,
+    log_noise = np.log1p(NOISE / PRIOR_MEAN)   # noise std in log-space (delta method)
+    return GaussianProcessRegressor(kernel=kernel, alpha=log_noise**2,
                                     optimizer=None, normalize_y=False)
 
 
 def gp_predict(xs, obs_mask):
     """
-    Return posterior mean and std at locations xs via scikit-learn GPR.
-    Falls back to the analytic prior when no observations are selected.
+    Return (mu, lo, hi) — posterior median and 95 % CI bounds in original
+    case-count units — by fitting the GP in log-space.
+
+    Fitting in log-space means predictions are always strictly positive:
+      lo = exp(log_mu − CI_MULTIPLIER · log_sig)  ≥ 0
+      hi = exp(log_mu + CI_MULTIPLIER · log_sig)  ≥ 0
+    The CI is asymmetric (wider on the upside) which is appropriate for
+    epidemic counts that grow and decay multiplicatively.
     """
     ox, oy = obsX[obs_mask], obsY[obs_mask]
+    log_prior = np.log(PRIOR_MEAN)
     if len(ox) == 0:
-        return np.full_like(xs, PRIOR_MEAN), np.full_like(xs, RBF_SIGNAL_STD)
+        # Analytic prior: flat median at PRIOR_MEAN, CI from kernel amplitude
+        mu = np.full_like(xs, PRIOR_MEAN)
+        lo = np.exp(log_prior - CI_MULTIPLIER * RBF_LOG_STD) * np.ones_like(xs)
+        hi = np.exp(log_prior + CI_MULTIPLIER * RBF_LOG_STD) * np.ones_like(xs)
+        return mu, lo, hi
     gpr = _build_gpr()
-    gpr.fit(ox.reshape(-1, 1), oy - PRIOR_MEAN)
-    mu, sig = gpr.predict(xs.reshape(-1, 1), return_std=True)
-    return mu + PRIOR_MEAN, sig
+    log_oy = np.log(np.maximum(oy, 1.0))
+    gpr.fit(ox.reshape(-1, 1), log_oy - log_prior)
+    log_mu, log_sig = gpr.predict(xs.reshape(-1, 1), return_std=True)
+    log_mu += log_prior
+    mu = np.exp(log_mu)
+    lo = np.exp(log_mu - CI_MULTIPLIER * log_sig)
+    hi = np.exp(log_mu + CI_MULTIPLIER * log_sig)
+    return mu, lo, hi
 
 
 def gp_sample(xs, obs_mask):
     """
-    Draw N_SAMPLES functions from the GP posterior via scikit-learn GPR.
-    Returns shape (N_SAMPLES, len(xs)) — same convention as the rest of the code.
-    Uses return_cov=True + eigenvalue clamping to guarantee positive-definiteness
-    at the high amplitudes needed for the Maryland case-count scale.
+    Draw N_SAMPLES functions from the GP posterior in log-space, then exponentiate.
+    All sample paths are guaranteed strictly positive.
     """
     ox, oy = obsX[obs_mask], obsY[obs_mask]
+    log_prior = np.log(PRIOR_MEAN)
     gpr = _build_gpr()
     rng = np.random.RandomState(SAMPLE_SEED)
 
     if len(ox) == 0:
-        cov = gpr.kernel(xs.reshape(-1, 1))
+        cov    = gpr.kernel(xs.reshape(-1, 1))
+        log_mu = np.zeros(len(xs))
     else:
-        gpr.fit(ox.reshape(-1, 1), oy - PRIOR_MEAN)
-        _, cov = gpr.predict(xs.reshape(-1, 1), return_cov=True)
+        log_oy = np.log(np.maximum(oy, 1.0))
+        gpr.fit(ox.reshape(-1, 1), log_oy - log_prior)
+        log_mu, cov = gpr.predict(xs.reshape(-1, 1), return_cov=True)
 
-    # Clamp any slightly-negative eigenvalues caused by floating-point error,
-    # then re-symmetrize and add a tiny nugget to guarantee PSD.
+    # Clamp any slightly-negative eigenvalues, re-symmetrize, add nugget
     vals, vecs = np.linalg.eigh(cov)
     cov_stable = vecs @ np.diag(np.maximum(vals, 0)) @ vecs.T
-    cov_stable = (cov_stable + cov_stable.T) / 2          # re-symmetrize
-    cov_stable += np.eye(len(xs)) * 1e-8                  # nugget
+    cov_stable = (cov_stable + cov_stable.T) / 2
+    cov_stable += np.eye(len(xs)) * 1e-8
 
-    mu = (np.zeros(len(xs)) if len(ox) == 0
-          else gpr.predict(xs.reshape(-1, 1)))
-    samples = rng.multivariate_normal(mu + PRIOR_MEAN, cov_stable, size=N_SAMPLES,
-                                       check_valid='ignore')
-    return samples   # shape (N_SAMPLES, n_test)
+    log_samples = rng.multivariate_normal(log_mu + log_prior, cov_stable,
+                                          size=N_SAMPLES, check_valid='ignore')
+    return np.exp(log_samples)   # shape (N_SAMPLES, n_test), all strictly positive
 
 
 def remove_errbar(eb):
@@ -318,7 +337,7 @@ ax.spines['left'].set_color('#30363d')
 ax.spines['bottom'].set_color('#30363d')
 ax.tick_params(colors=MUT_C, labelsize=9)
 ax.set_xlabel('', color=MUT_C, fontsize=10)
-ax.set_ylabel('Daily Cases', color=MUT_C, fontsize=10)
+ax.set_ylabel('Approx. 7-day avg. daily cases', color=MUT_C, fontsize=10)
 ax.xaxis.set_tick_params(color='#30363d')
 ax.yaxis.set_tick_params(color='#30363d')
 for tick in ax.get_xticklabels() + ax.get_yticklabels():
@@ -364,7 +383,7 @@ fore_shade  = ax.axvspan(obsX.max(), XMAX, alpha=0, color=MEAN_C, zorder=1)
 bed_line    = ax.axhline(HOSPITAL_CAPACITY, color=BED_C, linewidth=1.8,
                          linestyle='-.', alpha=0.85, zorder=5,
                          label=f'Hospital capacity ({HOSPITAL_CAPACITY:,})')
-ax.text(XMAX - 0.3, HOSPITAL_CAPACITY + 20, f'Hospital surge threshold\n({HOSPITAL_CAPACITY:,} cases/day)',
+ax.text(XMAX - 0.3, HOSPITAL_CAPACITY + 20, f'Associated with severe\nhospital strain (Dec 2020)',
         color=BED_C, fontsize=8, ha='right', va='bottom', alpha=0.85, zorder=7)
 icu_line    = ax.axhline(ICU_CAPACITY, color=ICU_C, linewidth=1.5,
                           linestyle=':', alpha=0.85, zorder=5)
@@ -398,6 +417,10 @@ leg_elements = [
 ]
 ax.legend(handles=leg_elements, loc='upper left', fontsize=8,
           framealpha=0.3, facecolor=SURFACE, edgecolor='#30363d', labelcolor=TXT_C)
+
+fig.text(0.5, 0.01,
+         '* Early-pandemic counts underrepresent true infections due to limited testing capacity.',
+         ha='center', va='bottom', color=MUT_C, fontsize=7.5, style='italic')
 
 plt.tight_layout(rect=[0, 0.06, 1, 0.91])
 
@@ -482,10 +505,11 @@ def render_frame(frame_info):
     if trans:
         nsi    = frame_info['next_scene']
         nscene = scenes[nsi]
-        mu_a, sig_a = scene_cache[si]
-        mu_b, sig_b = scene_cache[nsi]
-        mu       = lerp(mu_a,  mu_b,  t)
-        sig      = lerp(sig_a, sig_b, t)
+        mu_a, lo_a, hi_a = scene_cache[si]
+        mu_b, lo_b, hi_b = scene_cache[nsi]
+        mu = lerp(mu_a, mu_b, t)
+        lo = lerp(lo_a, lo_b, t)
+        hi = lerp(hi_a, hi_b, t)
         show_wfh      = scene['show_wfh']      or (t > 0.5 and nscene['show_wfh'])
         show_omi      = scene['show_omi']      or (t > 0.5 and nscene['show_omi'])
         show_vax      = scene['show_vax']      or (t > 0.5 and nscene['show_vax'])
@@ -500,7 +524,7 @@ def render_frame(frame_info):
         for sl, sa, sb in zip(sample_lines, samp_a, samp_b):
             sl.set_data(xs_full, np.maximum(0, lerp(sa, sb, t)))
     else:
-        mu, sig  = scene_cache[si]
+        mu, lo, hi = scene_cache[si]
         show_wfh      = scene['show_wfh']
         show_omi      = scene['show_omi']
         show_vax      = scene['show_vax']
@@ -515,10 +539,7 @@ def render_frame(frame_info):
             sl.set_data(xs_full, np.maximum(0, samp))
 
     ci_band.remove()
-    ci_band = ax.fill_between(xs_full,
-                               mu - CI_MULTIPLIER * sig,
-                               mu + CI_MULTIPLIER * sig,
-                               color=CI_C, alpha=0.14, zorder=3)
+    ci_band = ax.fill_between(xs_full, lo, hi, color=CI_C, alpha=0.14, zorder=3)
     mean_line.set_data(xs_full, mu)
 
     rx = obsX[list(obs_mask)] if obs_mask else np.array([])
@@ -539,20 +560,21 @@ def render_frame(frame_info):
     fore_shade.set_alpha(0.06 if is_final else 0.0)
 
     if query is not None:
-        qmu, qsig = gp_predict(
+        qmu, qlo, qhi = gp_predict(
             np.array([float(query)]),
             np.array([i in obs_mask for i in range(n)])
         )
-        qmu, qsig = float(qmu[0]), float(qsig[0])
-        half = CI_MULTIPLIER * qsig
+        qmu, qlo, qhi = float(qmu[0]), float(qlo[0]), float(qhi[0])
         qry_line.set_xdata([query, query])
         qry_line.set_alpha(0.6)
         remove_errbar(qry_errbar)
-        qry_errbar = ax.errorbar(query, qmu, yerr=half, fmt='o', color=QRY_C,
+        qry_errbar = ax.errorbar(query, qmu,
+                                  yerr=[[qmu - qlo], [qhi - qmu]],
+                                  fmt='o', color=QRY_C,
                                   capsize=6, capthick=1.8, elinewidth=2.2,
                                   markersize=8, zorder=7)
-        qry_label.set_position((query, qmu + half + 55))
-        qry_label.set_text(f'W{query}: ~{int(qmu)}±{int(half)}')
+        qry_label.set_position((query, qhi + 55))
+        qry_label.set_text(f'W{query}: ~{int(qmu)} [{int(qlo)}–{int(qhi)}]')
         qry_label.set_alpha(1.0)
     else:
         qry_line.set_alpha(0.0)

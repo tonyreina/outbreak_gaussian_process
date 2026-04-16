@@ -105,25 +105,29 @@ Key design choices:
 
 Case counts and event dates are derived from Maryland's actual COVID-19 record.
 Week 1 = March 5, 2020 (first confirmed Maryland case); Week 52 = March 4, 2021.
+All case figures are **approximate 7-day average daily cases**; early values underrepresent
+true infections due to limited testing capacity.
 
 | Week | Approx. date | Event / observation |
 |------|-------------|---------------------|
-| W2  | Mar 12 | First confirmed cases (~8/day) |
-| W4  | Mar 26 | First wave climbing (~220/day); **Stay-at-home order** (Mar 23) |
+| W2  | Mar 12 | First confirmed cases (~8/day)* |
+| W4  | Mar 26 | First wave climbing (~220/day)*; **Stay-at-home order** (Mar 23) |
 | W7  | Apr 16 | First wave peak (~820/day); **Mask mandate issued** (Apr 15) |
-| W11 | May 14 | Post-peak decline (~480/day); **Stage 1 reopen** (May 15) |
+| W11 | May 14 | Post-peak decline (~480/day); **Stage 1 partial reopen** (May 15) |
 | W18 | Jul 2  | Summer plateau (~590/day) |
 | W25 | Aug 20 | Late summer (~510/day) |
-| W27 | Sep 4  | **Stage 3 reopen** (schools authorised to resume) |
+| W27 | Sep 4  | **Schools reopen** (Stage 3, schools authorised to resume) |
 | W32 | Oct 8  | Fall surge building (~950/day) |
 | W39 | Nov 26 | Thanksgiving surge (~2,200/day) |
 | W42 | Dec 17 | **Vaccine rollout begins** (first doses Dec 14) |
 | W44 | Dec 31 | Winter peak (~3,800/day) |
 | W47 | Jan 28 | Post-peak declining (~2,500/day) |
 
-Hospital capacity lines:
-- **ICU beds (1,200):** total licensed ICU beds statewide (MHCC FY2020)
-- **Hospital surge threshold (2,500/day):** daily case rate at which Maryland hospitals were severely strained (Dec 2020)
+\* Early counts are especially imprecise due to limited testing in Mar–Apr 2020.
+
+Hospital reference lines:
+- **ICU beds (1,200):** total licensed ICU beds statewide (MHCC FY2020); surge capacity and staffing varied
+- **~2,500 cases/day:** level associated with severe hospital strain in Dec 2020 — not an official threshold
 
 ---
 
