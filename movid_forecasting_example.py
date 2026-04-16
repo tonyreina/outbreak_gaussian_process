@@ -83,7 +83,7 @@ SAMPLE_SEED       = 42     # RNG seed — change to see different plausible samp
 # ── GP kernel ─────────────────────────────────────────────────────────────────
 RBF_LENGTH_SCALE = 6.0    # smoothness: larger → longer correlation length
 RBF_LOG_STD      = 0.8    # signal amplitude in log-space (≈ log(1 + cases_std/prior_mean))
-PRIOR_MEAN       = 1000.0 # prior mean (cases/day): GP is centred here in log-space
+PRIOR_MEAN       = 600.0 # prior mean (cases/day): GP is centred here in log-space
                            # prior 95% CI: [PRIOR_MEAN/exp(1.96·RBF_LOG_STD),
                            #                PRIOR_MEAN·exp(1.96·RBF_LOG_STD)]
 
@@ -414,7 +414,7 @@ vax_label   = ax.text(VAX_WEEK    + 0.3, YMAX * 0.77, 'Vaccine',    color=VAX_C,
                       fontsize=8.5, fontweight='bold', alpha=0, zorder=7)
 mask_label  = ax.text(MASK_WEEK   + 0.3, YMAX * 0.62, 'Mask\nissued', color=MASK_C,
                       fontsize=8.5, fontweight='bold', alpha=0, zorder=7)
-school_label = ax.text(SCHOOL_WEEK + 0.3, YMAX * 0.77, 'Stage 3:\nSchools auth.\n(many remote)', color=SCH_C,
+school_label = ax.text(SCHOOL_WEEK + 0.3, YMAX * 0.77, 'Stage 3:\nSchools restart\n(many remote)', color=SCH_C,
                        fontsize=8.5, fontweight='bold', alpha=0, zorder=7)
 # GP sample curves — faint plausible functions drawn from the posterior distribution
 sample_lines = [ax.plot([], [], color=MEAN_C, linewidth=0.8, alpha=0.25, zorder=2)[0]

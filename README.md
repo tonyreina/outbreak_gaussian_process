@@ -214,7 +214,7 @@ Re-run `pixi run render` after any change to see the effect.
 | `NOISE` | 150 | Data trusted less → wider posterior, mean pulled less toward dots | Data trusted more → mean passes closer to dots, narrower CI |
 | `RBF_LENGTH_SCALE` | 6.0 weeks | Smoother curves, correlations span more weeks | Wiggly curves, each observation influences a narrower window |
 | `RBF_LOG_STD` | 0.8 | Wider prior band, model allows larger swings | Tighter prior band, model is sceptical of extreme values |
-| `PRIOR_MEAN` | 1000 | Prior centred higher; affects regions with no data | Prior centred lower |
+| `PRIOR_MEAN` | 600 | Prior centred higher; affects regions with no data | Prior centered lower |
 | `CI_MULTIPLIER` | 1.96 | Wider band (e.g. 2.58 → 99 % CI) | Narrower band (e.g. 1.0 → ~68 % CI) |
 | `N_SAMPLES` | 5 | More sample paths shown | Fewer sample paths |
 | `TRANSITION` | 25 | Slower morph between scenes | Faster morph |
