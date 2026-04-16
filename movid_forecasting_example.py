@@ -61,7 +61,7 @@ HOSPITAL_CAPACITY = 2500   # daily case rate at which MD hospitals were severely
 ICU_CAPACITY      = 1200   # total licensed ICU beds in Maryland (MHCC FY2020)
 VAX_WEEK          = 42     # Dec 14 2020: first COVID vaccines administered in Maryland
 MASK_WEEK         = 7      # Apr 15 2020: statewide mask mandate issued
-SCHOOL_WEEK       = 27     # Sep 4 2020: Stage 3 reopening (schools authorized to resume)
+SCHOOL_WEEK       = 27     # Sep 4 2020: Stage 3 reopening — schools authorized but many stayed remote/hybrid
 N_SAMPLES         = 5      # number of GP sample curves to draw (illustrates distribution over functions)
 SAMPLE_SEED       = 42     # RNG seed — change to see different plausible sample paths
 
@@ -188,9 +188,11 @@ def remove_errbar(eb):
 
 def true_curve(x):
     """
-    Idealised noise-free epidemic curve approximating Maryland's year-1 COVID arc.
+    Smooth three-Gaussian approximation of Maryland's year-1 COVID arc —
+    for visualization only, not mechanistic modeling. Real epidemic curves
+    are not Gaussian; this shape is chosen to match the observed wave timing
+    and magnitudes while remaining differentiable and easy to sample from.
     Each reported data point ≈ true_curve(week) + Gaussian(0, NOISE).
-    Three components: spring first wave, summer plateau, and winter surge.
     """
     first_wave = 800  * np.exp(-0.5 * ((x -  7.0) / 3.5)**2)   # peak ~Apr 16
     summer     = 500  * np.exp(-0.5 * ((x - 21.0) / 9.0)**2)   # broad summer plateau
@@ -243,7 +245,7 @@ scenes = [
     },
     {
         'title':        'Step 4 · Summer Plateau  (W18–W25)',
-        'desc':         'Stage 3 reopening (Sep 4) keeps cases at 500–600/day; uncertainty narrows between data points',
+        'desc':         'Stage 3 (Sep 4): schools authorized — many districts stayed remote/hybrid; cases hold at 500–600/day',
         'obs_revealed': [0, 1, 2, 3, 4, 5],
         'show_wfh':     True,
         'show_omi':     True,
@@ -397,7 +399,7 @@ vax_label   = ax.text(VAX_WEEK    + 0.3, YMAX * 0.77, 'Vaccine',    color=VAX_C,
                       fontsize=8.5, fontweight='bold', alpha=0, zorder=7)
 mask_label  = ax.text(MASK_WEEK   + 0.3, YMAX * 0.62, 'Mask\nissued', color=MASK_C,
                       fontsize=8.5, fontweight='bold', alpha=0, zorder=7)
-school_label = ax.text(SCHOOL_WEEK + 0.3, YMAX * 0.77, 'Schools\nReopen', color=SCH_C,
+school_label = ax.text(SCHOOL_WEEK + 0.3, YMAX * 0.77, 'Stage 3:\nSchools auth.\n(many remote)', color=SCH_C,
                        fontsize=8.5, fontweight='bold', alpha=0, zorder=7)
 # GP sample curves — faint plausible functions drawn from the posterior distribution
 sample_lines = [ax.plot([], [], color=MEAN_C, linewidth=0.8, alpha=0.25, zorder=2)[0]

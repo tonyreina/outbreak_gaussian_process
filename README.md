@@ -110,14 +110,14 @@ true infections due to limited testing capacity.
 
 | Week | Approx. date | Event / observation |
 |------|-------------|---------------------|
-| W2  | Mar 12 | First confirmed cases (~8/day)* |
+| W2  | Mar 12 | First confirmed cases (~5–15/day reported)*; highly uncertain due to testing limits |
 | W4  | Mar 26 | First wave climbing (~220/day)*; **Stay-at-home order** (Mar 23) |
 | W7  | Apr 16 | First wave peak (~820/day); **Mask mandate issued** (Apr 15) |
 | W11 | May 14 | Post-peak decline (~480/day); **Stage 1 partial reopen** (May 15) |
 | W18 | Jul 2  | Summer plateau (~590/day) |
 | W25 | Aug 20 | Late summer (~510/day) |
-| W27 | Sep 4  | **Schools reopen** (Stage 3, schools authorised to resume) |
-| W32 | Oct 8  | Fall surge building (~950/day) |
+| W27 | Sep 4  | **Stage 3 reopening** — schools authorized to resume; many districts stayed remote or hybrid |
+| W32 | Oct 8  | Fall surge building (~900–1,100/day) |
 | W39 | Nov 26 | Thanksgiving surge (~2,200/day) |
 | W42 | Dec 17 | **Vaccine rollout begins** (first doses Dec 14) |
 | W44 | Dec 31 | Winter peak (~3,800/day) |
@@ -146,7 +146,9 @@ Hospital reference lines:
 | 9 | Final posterior | Full year reconstruction; forecast region shaded |
 
 The dashed white line shows the **simulated ground truth** — a smooth three-Gaussian
-approximation of Maryland's spring, summer, and winter epidemic waves.
+approximation of Maryland's spring, summer, and winter epidemic waves, chosen to match
+observed wave timing and magnitudes. This is a visualization aid, not a mechanistic model;
+real epidemic curves are not Gaussian in shape.
 
 ---
 
