@@ -26,9 +26,24 @@ import datetime
 import numpy as np
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel
+import glob
 import matplotlib
 matplotlib.use('Agg')
+import matplotlib.font_manager as _fm
+
+# Register Lato (system) — clean humanist sans-serif for all display text
+for _ttf in glob.glob('/usr/share/fonts/truetype/lato/Lato-*.ttf'):
+    _fm.fontManager.addfont(_ttf)
+
+# Register Source Code Pro (pixi env) — for monospace query labels
+_pixi_fonts = glob.glob('.pixi/envs/default/fonts/SourceCodePro-*.ttf')
+for _ttf in _pixi_fonts:
+    _fm.fontManager.addfont(_ttf)
+
 import matplotlib.pyplot as plt
+matplotlib.rcParams['font.family'] = 'Lato'
+matplotlib.rcParams['font.weight'] = 'regular'
+
 import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
 from matplotlib.animation import FFMpegWriter
@@ -208,7 +223,7 @@ YMIN, YMAX = 0, 5000
 
 scenes = [
     {
-        'title':        'Step 1 · Prior — Before Any Data  (Maryland, Mar 2020)',
+        'title':        'Step 1 · Prior — Before Any Data  (Maryland, March 2020)',
         'desc':         'GP prior: 5 plausible epidemic curves — broad uncertainty before any reports',
         'obs_revealed': [],
         'show_wfh':     False,
@@ -221,7 +236,7 @@ scenes = [
     },
     {
         'title':        'Step 2 · First Cases + Stay-at-Home Order  (W2–W4)',
-        'desc':         'Early seeding; non-essential businesses close Mar 23 — samples compress toward low counts',
+        'desc':         'Early seeding; non-essential businesses close March 23 — samples compress toward low counts',
         'obs_revealed': [0, 1],
         'show_wfh':     True,    # WFH order at W4, same week as obs[1]
         'show_omi':     False,
@@ -233,7 +248,7 @@ scenes = [
     },
     {
         'title':        'Step 3 · First Wave Peak + Mask Mandate  (W7)',
-        'desc':         'Cases hit ~820/day by Apr 16; mask mandate issued — GP posterior captures sharp rise and fall',
+        'desc':         'Cases hit ~820/day by April 16; mask mandate issued — GP posterior captures sharp rise and fall',
         'obs_revealed': [0, 1, 2, 3],
         'show_wfh':     True,
         'show_omi':     True,    # Stage 1 reopen at W11 = obs[3]
@@ -304,7 +319,7 @@ scenes = [
         'hold_frames':  70,
     },
     {
-        'title':        'Final Posterior — Maryland Year 1  (Mar 2020 – Mar 2021)',
+        'title':        'Final Posterior — Maryland Year 1  (March 2020 – March 2021)',
         'desc':         'Confident reconstruction over the observed period; honest uncertainty past last data point',
         'obs_revealed': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
         'show_wfh':     True,
@@ -365,7 +380,7 @@ ys_true = true_curve(xs_true)
 
 # Persistent plot artists
 true_line,  = ax.plot(xs_true, ys_true, color=TRUE_C, linewidth=1.4,
-                      linestyle='--', alpha=0.55, zorder=2, label='Simulated truth')
+                      linestyle='--', alpha=0.55, zorder=2, label='True incidence')
 ci_band     = ax.fill_between([], [], [], color=CI_C, alpha=0.15, zorder=3)
 mean_line,  = ax.plot([], [], color=MEAN_C, linewidth=2.2, zorder=4)
 obs_scatter = ax.scatter([], [], color=OBS_C, s=70, zorder=6,
@@ -380,7 +395,7 @@ qry_line    = ax.axvline(0, color=QRY_C, linewidth=1.2, linestyle=':', alpha=0, 
 qry_errbar  = ax.errorbar([], [], yerr=[], fmt='o', color=QRY_C,
                            capsize=5, capthick=1.5, elinewidth=2, markersize=7, zorder=7)
 qry_label   = ax.text(0, 0, '', color=QRY_C, fontsize=9, ha='center', zorder=8,
-                      fontfamily='monospace')
+                      fontfamily='Source Code Pro' if _pixi_fonts else 'monospace')
 fore_shade  = ax.axvspan(obsX.max(), XMAX, alpha=0, color=MEAN_C, zorder=1)
 bed_line    = ax.axhline(HOSPITAL_CAPACITY, color=BED_C, linewidth=1.8,
                          linestyle='-.', alpha=0.85, zorder=5,
@@ -406,12 +421,12 @@ sample_lines = [ax.plot([], [], color=MEAN_C, linewidth=0.8, alpha=0.25, zorder=
                 for _ in range(N_SAMPLES)]
 title_txt   = ax.text(0.5, 1.04, '', transform=ax.transAxes,
                       ha='center', va='bottom', color=TXT_C, fontsize=13, fontweight='bold')
-desc_txt    = ax.text(0.5, -0.13, '', transform=ax.transAxes,
+desc_txt    = ax.text(0.5, -0.09, '', transform=ax.transAxes,
                       ha='center', va='top', color=MUT_C, fontsize=9.5, style='italic')
 
 leg_elements = [
     mlines.Line2D([0],[0], color=TRUE_C, linewidth=1.4, linestyle='--',
-                  alpha=0.7, label='Simulated truth'),
+                  alpha=0.7, label='True rate'),
     mlines.Line2D([0],[0], marker='o', color='w', markerfacecolor=OBS_C,
                   markersize=8, label='Reported cases'),
     mlines.Line2D([0],[0], marker='o', color='w', markerfacecolor=QRY_C,
@@ -420,11 +435,11 @@ leg_elements = [
 ax.legend(handles=leg_elements, loc='upper left', fontsize=8,
           framealpha=0.3, facecolor=SURFACE, edgecolor='#30363d', labelcolor=TXT_C)
 
-fig.text(0.5, 0.01,
+fig.text(0.5, 0.025,
          '* Early-pandemic counts underrepresent true infections due to limited testing capacity.',
          ha='center', va='bottom', color=MUT_C, fontsize=7.5, style='italic')
 
-plt.tight_layout(rect=[0, 0.06, 1, 0.91])
+plt.tight_layout(rect=[0, 0.09, 1, 0.91])
 
 # ── Kernel matrix inset (optional) ────────────────────────────────────────────
 # Positioned upper-right; shows k(xᵢ,xⱼ) = exp(−½ Δt²/ℓ²) as a live heatmap.
